@@ -16,7 +16,19 @@ const selectors = [audioInputSelect, audioOutputSelect, videoSelect];
 
 audioOutputSelect.disabled = !('sinkId' in HTMLMediaElement.prototype);
 
-function gotDevices(deviceInfos) {
+function getDevices() {
+  return navigator.mediaDevices.enumerateDevices();
+}
+
+// 只有首次获取到设备列表需要打印
+let isFirstGetDevices = false;
+// 1. 保存一份设备列表
+let prevDevices = [];
+/**
+ * 
+ * @param {MediaDeviceInfo[]} deviceInfos 
+ */
+function handleGotDevices(deviceInfos) {
   // Handles being called several times to update labels. Preserve values.
   const values = selectors.map(select => select.value);
   selectors.forEach(select => {
@@ -37,8 +49,6 @@ function gotDevices(deviceInfos) {
     } else if (deviceInfo.kind === 'videoinput') {
       option.text = deviceInfo.label || `camera ${videoSelect.length + 1}`;
       videoSelect.appendChild(option);
-    } else {
-      console.log('Some other kind of source/device: ', deviceInfo);
     }
   }
   selectors.forEach((select, selectorIndex) => {
@@ -48,26 +58,26 @@ function gotDevices(deviceInfos) {
   });
 }
 
-navigator.mediaDevices.enumerateDevices().then(gotDevices).catch(handleError);
+// navigator.mediaDevices.enumerateDevices().then(gotDevices).catch(handleError);
 
 // Attach audio output device to video element using device/sink ID.
 function attachSinkId(element, sinkId) {
   if (typeof element.sinkId !== 'undefined') {
     element.setSinkId(sinkId)
         .then(() => {
-          console.log(`Success, audio output device attached: ${sinkId}`);
+          log(`[success] audio output device attached: ${sinkId}`);
         })
         .catch(error => {
           let errorMessage = error;
           if (error.name === 'SecurityError') {
             errorMessage = `You need to use HTTPS for selecting audio output device: ${error}`;
           }
-          console.error(errorMessage);
+          log('[error]' + errorMessage);
           // Jump back to first output device in the list as it's the default.
           audioOutputSelect.selectedIndex = 0;
         });
   } else {
-    console.warn('Browser does not support output device selection.');
+    log('[warn] Browser does not support output device selection.');
   }
 }
 
@@ -76,15 +86,33 @@ function changeAudioDestination() {
   attachSinkId(videoElement, audioDestination);
 }
 
+/**
+ * @param {MediaStream} stream
+ */
 function gotStream(stream) {
   window.stream = stream; // make stream available to console
   videoElement.srcObject = stream;
-  // Refresh button list in case labels have become available
-  return navigator.mediaDevices.enumerateDevices();
+  videoElement.onabort = () => { log('[videoElement] onabort') };
+  videoElement.onchange = () => { log('[videoElement] onchange') };
+  videoElement.onclose = () => { log('[videoElement] onclose') };
+  videoElement.onended = () => { log('[videoElement] onended') };
+  const audioTrack = stream.getAudioTracks()[0];
+  const settings = audioTrack ? audioTrack.getSettings() : {};
+  log('[audioTrack]' + (!audioTrack ? '-' : ` 
+    label:${audioTrack.label} 
+    kind:${audioTrack.kind} / 
+    deviceId:${formatDeviceId(settings.deviceId)}
+    groupId:${formatGroupId(settings.groupId)}
+    `));
+  if (audioTrack) {
+    audioTrack.onended = () => { log('[audioTrack] onended') };
+    audioTrack.onmute = () => { log('[audioTrack] onmute') };
+    audioTrack.onunmute = () => { log('[audioTrack] onunmute') };
+  }
 }
 
 function handleError(error) {
-  console.log('navigator.MediaDevices.getUserMedia error: ', error.message, error.name);
+  log(`[error] navigator.MediaDevices.getUserMedia error: [${error.name}]${error.message}`);
 }
 
 function start() {
@@ -99,7 +127,28 @@ function start() {
     audio: {deviceId: audioSource ? {exact: audioSource} : undefined},
     video: {deviceId: videoSource ? {exact: videoSource} : undefined}
   };
-  navigator.mediaDevices.getUserMedia(constraints).then(gotStream).then(gotDevices).catch(handleError);
+  // const constraints = {
+  //   audio: false,
+  //   video: true,
+  // }
+  log('参数设置：' + JSON.stringify(constraints));
+  navigator.mediaDevices.getUserMedia(constraints)
+    .then(gotStream)
+    .then(() => {
+      if (!isFirstGetDevices) {
+        return getDevices();
+      }
+    })
+    .then((res) => {
+      if (!res) return;
+      if (!isFirstGetDevices) {
+        logDevices(res);
+      }
+      isFirstGetDevices = true;
+      prevDevices = res;
+      handleGotDevices(res);
+      initListener();
+    }).catch(handleError);
 }
 
 audioInputSelect.onchange = start;
@@ -108,3 +157,62 @@ audioOutputSelect.onchange = changeAudioDestination;
 videoSelect.onchange = start;
 
 start();
+
+/**
+ * 
+ * @param {MediaDeviceInfo[]} list 
+ */
+function logDevices(list) {
+  list.forEach((item) => {
+    if (item.kind === 'videoinput') return;
+    log(`
+      [${item.kind}]
+      groupId:${formatGroupId(item.groupId)}
+      deviceId:${formatDeviceId(item.deviceId)} 
+      label:${item.label} 
+      `);
+  });
+}
+
+// 2. 监听设备变更事件
+function initListener() {
+  navigator.mediaDevices.addEventListener('devicechange', checkDevicesUpdate.bind(undefined, 1));
+  setInterval(checkDevicesUpdate.bind(undefined, 2), 1000);
+}
+
+/**
+ * 
+ * @param {1|2} source 1:'devicechange 事件监听' 2:'定时器'
+ */
+async function checkDevicesUpdate(source) {
+  if (source === 1) {
+    log('支持 devicechange 事件监听');
+  }
+  source = {
+    1: 'devicechange 事件监听',
+    2:'定时器'
+  }[source];
+  // 3. 设备变更时，获取变更后的设备列表，用于和 prevDevices 比对
+  const devices = await getDevices();
+  // 4. 新增的设备列表
+  const devicesAdded = devices.filter(device =>  prevDevices.findIndex(({ deviceId, kind }) => device.kind === kind && device.deviceId === deviceId) < 0);
+  // 5. 移除的设备列表
+  const devicesRemoved = prevDevices.filter(prevDevice => devices.findIndex(({ deviceId, kind }) => prevDevice.kind === kind && prevDevice.deviceId === deviceId) < 0);
+  if (devicesAdded.length > 0 || devicesRemoved.length > 0) {
+    // log(`设备变化：（from ${source}）
+    //   +${devicesAdded.length} -${devicesRemoved.length}
+    //   prev:${prevDevices.map(item => item.kind + formatDeviceId(item.deviceId)).join(',')}
+    //   curr:${devices.map(item => item.kind + formatDeviceId(item.deviceId)).join(',')}
+    //   `);
+    handleGotDevices(devices);
+  }
+  if (devicesAdded.length > 0) {
+    log(`新增设备：（from ${source}）`);
+    logDevices(devicesAdded);
+  }
+  if (devicesRemoved.length > 0) {
+    log(`移除设备：（from ${source}）`);
+    logDevices(devicesRemoved);
+  }
+  prevDevices = devices;
+}
