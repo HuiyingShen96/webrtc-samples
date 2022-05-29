@@ -97,13 +97,7 @@ function gotStream(stream) {
   videoElement.onclose = () => { log('[videoElement] onclose') };
   videoElement.onended = () => { log('[videoElement] onended') };
   const audioTrack = stream.getAudioTracks()[0];
-  const settings = audioTrack ? audioTrack.getSettings() : {};
-  log('[audioTrack]' + (!audioTrack ? '-' : ` 
-    label:${audioTrack.label} 
-    kind:${audioTrack.kind} / 
-    deviceId:${formatDeviceId(settings.deviceId)}
-    groupId:${formatGroupId(settings.groupId)}
-    `));
+  logAudioTrackSettings(audioTrack);
   if (audioTrack) {
     audioTrack.onended = () => { log('[audioTrack] onended') };
     audioTrack.onmute = () => { log('[audioTrack] onmute') };
@@ -131,7 +125,8 @@ function start() {
   //   audio: false,
   //   video: true,
   // }
-  log('参数设置：' + JSON.stringify(constraints));
+  log(`UA: ${navigator.userAgent}`);
+  log('视频流参数设置：' + JSON.stringify(constraints));
   navigator.mediaDevices.getUserMedia(constraints)
     .then(gotStream)
     .then(() => {
@@ -159,7 +154,7 @@ videoSelect.onchange = start;
 start();
 
 /**
- * 
+ * 打印设备列表中的信息。
  * @param {MediaDeviceInfo[]} list 
  */
 function logDevices(list) {
@@ -174,24 +169,37 @@ function logDevices(list) {
   });
 }
 
-// 2. 监听设备变更事件
-function initListener() {
-  navigator.mediaDevices.addEventListener('devicechange', checkDevicesUpdate.bind(undefined, 1));
-  setInterval(checkDevicesUpdate.bind(undefined, 2), 1000);
+/**
+ * 打印 audioTrack 使用的设备信息。
+ * @param {MediaStreamTrack} audioTrack 
+ */
+function logAudioTrackSettings(audioTrack) {
+  if (!audioTrack) {
+    log('[audioTrack] 奇怪，没有 audioTrack');
+    return;
+  }
+  const settings = audioTrack.getSettings();
+  log(`[audioTrack] 
+    label:${audioTrack.label} 
+    kind:${audioTrack.kind} / 
+    deviceId:${formatDeviceId(settings.deviceId)}
+    groupId:${formatGroupId(settings.groupId)}
+    `);
 }
 
-/**
- * 
- * @param {1|2} source 1:'devicechange 事件监听' 2:'定时器'
- */
-async function checkDevicesUpdate(source) {
-  if (source === 1) {
-    log('支持 devicechange 事件监听');
+const isSupportDeviceChange = 'ondevicechange' in navigator.mediaDevices;
+log(`[support] 是否支持 devicechange 事件:${isSupportDeviceChange}`);
+
+// 2. 监听设备变更事件
+function initListener() {
+  if (isSupportDeviceChange) {
+    navigator.mediaDevices.addEventListener('devicechange', checkDevicesUpdate.bind(undefined, 'devicechange 事件监听'));
+  } else {
+    setInterval(checkDevicesUpdate.bind(undefined, '定时器'), 1000);
   }
-  source = {
-    1: 'devicechange 事件监听',
-    2:'定时器'
-  }[source];
+}
+
+async function checkDevicesUpdate(source) {
   // 3. 设备变更时，获取变更后的设备列表，用于和 prevDevices 比对
   const devices = await getDevices();
   // 4. 新增的设备列表
@@ -213,6 +221,17 @@ async function checkDevicesUpdate(source) {
   if (devicesRemoved.length > 0) {
     log(`移除设备：（from ${source}）`);
     logDevices(devicesRemoved);
+
+    // 判断是否当前正在使用的设备被拔出
+    setTimeout(() => {
+      const audioTrack = window.stream.getAudioTracks()[0];
+      logAudioTrackSettings(audioTrack);
+      if (audioTrack) {
+        if (devicesRemoved.filter(item => item.deviceId === audioTrack.getSettings().deviceId)) {
+          log(`当前在使用的设备被移除了！`);
+        }
+      }
+    }, 3000);
   }
   prevDevices = devices;
 }
