@@ -28,7 +28,7 @@ let prevDevices = [];
  * 
  * @param {MediaDeviceInfo[]} deviceInfos 
  */
-function handleGotDevices(deviceInfos) {
+function setSelectOptions(deviceInfos) {
   // Handles being called several times to update labels. Preserve values.
   const values = selectors.map(select => select.value);
   selectors.forEach(select => {
@@ -106,7 +106,7 @@ function gotStream(stream) {
 }
 
 function handleError(error) {
-  log(`[error] navigator.MediaDevices.getUserMedia error: [${error.name}]${error.message}`);
+  log(`[error] navigator.mediaDevices.getUserMedia error: [${error.name}]${error.message}`);
 }
 
 function start() {
@@ -141,8 +141,8 @@ function start() {
       }
       isFirstGetDevices = true;
       prevDevices = res;
-      handleGotDevices(res);
-      initListener();
+      setSelectOptions(res);
+      initDeviceChangeListener();
     }).catch(handleError);
 }
 
@@ -187,16 +187,60 @@ function logAudioTrackSettings(audioTrack) {
     `);
 }
 
-const isSupportDeviceChange = 'ondevicechange' in navigator.mediaDevices;
-log(`[support] 是否支持 devicechange 事件:${isSupportDeviceChange}`);
 
 // 2. 监听设备变更事件
-function initListener() {
+function initDeviceChangeListener() {
+  const isSupportDeviceChange = 'ondevicechange' in navigator.mediaDevices;
+  log(`[support] 是否支持 devicechange 事件:${isSupportDeviceChange}`);
   if (isSupportDeviceChange) {
     navigator.mediaDevices.addEventListener('devicechange', checkDevicesUpdate.bind(undefined, 'devicechange 事件监听'));
   } else {
     setInterval(checkDevicesUpdate.bind(undefined, '定时器'), 1000);
   }
+}
+
+// 判断是否当前正在使用的设备被拔出
+function isCurrentMicrophoneRemoved(devicesRemoved) {
+  try {
+    const audioTrack = window.stream.getAudioTracks()[0];
+    const inUsingDeviceId = audioTrack.getSettings().deviceId;
+    log(`正在使用：${formatDeviceId(inUsingDeviceId)}`);
+    return audioTrack && devicesRemoved.filter(item => item.deviceId === inUsingDeviceId);
+  } catch (error) {
+    log(`[error] ${error.name}; ${error.message}`);
+  }
+}
+
+function getDevices() {
+  return navigator.mediaDevices.enumerateDevices();
+}
+
+// 检测设备插拔行为
+function initListener() {
+  const isSupportDeviceChange = 'ondevicechange' in navigator.mediaDevices;
+  log(`[support] 是否支持 devicechange 事件:${isSupportDeviceChange}`);
+  if (isSupportDeviceChange) {
+    navigator.mediaDevices.addEventListener('devicechange',
+      checkDevicesUpdate.bind(undefined, 'devicechange 事件监听'));
+  } else {
+    setInterval(checkDevicesUpdate.bind(undefined, '定时器'), 1000);
+  }
+}
+
+function switchToDefaultDevice() {
+  // ios 会自动切换
+  if (isIOS()) return;
+  log('切换设备');
+  if (window.stream) {
+    window.stream.getTracks().forEach(track => track.stop());
+  }
+  const constraints = {
+    audio: true,
+    video: true,
+  };
+  navigator.mediaDevices.getUserMedia(constraints)
+    .then(gotStream)
+    .catch(handleError);
 }
 
 async function checkDevicesUpdate(source) {
@@ -212,26 +256,20 @@ async function checkDevicesUpdate(source) {
     //   prev:${prevDevices.map(item => item.kind + formatDeviceId(item.deviceId)).join(',')}
     //   curr:${devices.map(item => item.kind + formatDeviceId(item.deviceId)).join(',')}
     //   `);
-    handleGotDevices(devices);
+    setSelectOptions(devices);
   }
   if (devicesAdded.length > 0) {
     log(`新增设备：（from ${source}）`);
     logDevices(devicesAdded);
+    switchToDefaultDevice();
   }
   if (devicesRemoved.length > 0) {
     log(`移除设备：（from ${source}）`);
     logDevices(devicesRemoved);
-
-    // 判断是否当前正在使用的设备被拔出
-    setTimeout(() => {
-      const audioTrack = window.stream.getAudioTracks()[0];
-      logAudioTrackSettings(audioTrack);
-      if (audioTrack) {
-        if (devicesRemoved.filter(item => item.deviceId === audioTrack.getSettings().deviceId)) {
-          log(`当前在使用的设备被移除了！`);
-        }
-      }
-    }, 3000);
+    if (isCurrentMicrophoneRemoved(devicesRemoved)) {
+      log(`当前在使用的设备被移除了！`);
+      switchToDefaultDevice();
+    }
   }
   prevDevices = devices;
 }
