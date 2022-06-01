@@ -220,13 +220,13 @@ function initListener() {
   const isSupportDeviceChange = 'ondevicechange' in navigator.mediaDevices;
   log(`[support] 是否支持 devicechange 事件:${isSupportDeviceChange}`);
   if (isSupportDeviceChange) {
-    navigator.mediaDevices.addEventListener('devicechange',
-      checkDevicesUpdate.bind(undefined, 'devicechange 事件监听'));
+    navigator.mediaDevices.addEventListener('devicechange', () => {
+      // 设备变化
+    });
   } else {
     setInterval(checkDevicesUpdate.bind(undefined, '定时器'), 1000);
   }
 }
-
 function switchToDefaultDevice() {
   // ios 会自动切换
   if (isIOS()) return;
