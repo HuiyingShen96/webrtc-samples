@@ -159,7 +159,7 @@ start();
  */
 function logDevices(list) {
   list.forEach((item) => {
-    if (item.kind === 'videoinput') return;
+    // if (item.kind === 'videoinput') return;
     log(`
       [${item.kind}]
       groupId:${formatGroupId(item.groupId)}
@@ -193,9 +193,9 @@ function initDeviceChangeListener() {
   const isSupportDeviceChange = 'ondevicechange' in navigator.mediaDevices;
   log(`[support] 是否支持 devicechange 事件:${isSupportDeviceChange}`);
   if (isSupportDeviceChange) {
-    navigator.mediaDevices.addEventListener('devicechange', checkDevicesUpdate.bind(undefined, 'devicechange 事件监听'));
+    navigator.mediaDevices.addEventListener('devicechange', checkDevicesUpdate);
   } else {
-    setInterval(checkDevicesUpdate.bind(undefined, '定时器'), 1000);
+    setInterval(checkDevicesUpdate, 1000);
   }
 }
 
@@ -215,18 +215,6 @@ function getDevices() {
   return navigator.mediaDevices.enumerateDevices();
 }
 
-// 检测设备插拔行为
-function initListener() {
-  const isSupportDeviceChange = 'ondevicechange' in navigator.mediaDevices;
-  log(`[support] 是否支持 devicechange 事件:${isSupportDeviceChange}`);
-  if (isSupportDeviceChange) {
-    navigator.mediaDevices.addEventListener('devicechange',
-      checkDevicesUpdate.bind(undefined, 'devicechange 事件监听'));
-  } else {
-    setInterval(checkDevicesUpdate.bind(undefined, '定时器'), 1000);
-  }
-}
-
 function switchToDefaultDevice() {
   // ios 会自动切换
   if (isIOS()) return;
@@ -243,15 +231,15 @@ function switchToDefaultDevice() {
     .catch(handleError);
 }
 
-async function checkDevicesUpdate(source) {
+async function checkDevicesUpdate() {
   // 3. 设备变更时，获取变更后的设备列表，用于和 prevDevices 比对
   const devices = await getDevices();
   // 4. 新增的设备列表
-  const devicesAdded = devices.filter(device =>  prevDevices.findIndex(({ deviceId, kind }) => device.kind === kind && device.deviceId === deviceId) < 0);
+  const devicesAdded = devices.filter(device => prevDevices.findIndex(({ deviceId, kind }) => device.kind === kind && device.deviceId === deviceId) < 0);
   // 5. 移除的设备列表
   const devicesRemoved = prevDevices.filter(prevDevice => devices.findIndex(({ deviceId, kind }) => prevDevice.kind === kind && prevDevice.deviceId === deviceId) < 0);
   if (devicesAdded.length > 0 || devicesRemoved.length > 0) {
-    // log(`设备变化：（from ${source}）
+    // log(`设备变化
     //   +${devicesAdded.length} -${devicesRemoved.length}
     //   prev:${prevDevices.map(item => item.kind + formatDeviceId(item.deviceId)).join(',')}
     //   curr:${devices.map(item => item.kind + formatDeviceId(item.deviceId)).join(',')}
@@ -259,12 +247,12 @@ async function checkDevicesUpdate(source) {
     setSelectOptions(devices);
   }
   if (devicesAdded.length > 0) {
-    log(`新增设备：（from ${source}）`);
+    log('新增设备');
     logDevices(devicesAdded);
     switchToDefaultDevice();
   }
   if (devicesRemoved.length > 0) {
-    log(`移除设备：（from ${source}）`);
+    log('移除设备');
     logDevices(devicesRemoved);
     if (isCurrentMicrophoneRemoved(devicesRemoved)) {
       log(`当前在使用的设备被移除了！`);
