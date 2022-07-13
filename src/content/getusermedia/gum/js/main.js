@@ -6,18 +6,28 @@
  *  tree.
  */
 'use strict';
+const url = new URL(location.href);
+const width = parseInt(url.searchParams.get('width'), 10) || 640;
+const height = parseInt(url.searchParams.get('height'), 10) || 360;
+const deviceId = url.searchParams.get('deviceId') || '';
 
 // Put variables in global scope to make them available to the browser console.
 const constraints = window.constraints = {
   audio: false,
-  video: true
+  video: {
+    width,
+    height,
+    deviceId,
+  }
 };
 
-function handleSuccess(stream) {
-  const video = document.querySelector('video');
+function handleSuccess(stream, container) {
+  console.log(container);
+  const video = document.getElementById(container);
   const videoTracks = stream.getVideoTracks();
-  console.log('Got stream with constraints:', constraints);
-  console.log(`Using video device: ${videoTracks[0].label}`);
+  log('Got stream with constraints:', constraints);
+  log('Actual stream settings:', videoTracks[0].getSettings());
+  log(`Using video device: ${videoTracks[0].label}`);
   window.stream = stream; // make variable available to browser console
   video.srcObject = stream;
 }
@@ -42,14 +52,15 @@ function errorMsg(msg, error) {
   }
 }
 
-async function init(e) {
+async function init(e, container) {
   try {
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    handleSuccess(stream);
+    handleSuccess(stream, container);
     e.target.disabled = true;
   } catch (e) {
     handleError(e);
   }
 }
 
-document.querySelector('#showVideo').addEventListener('click', e => init(e));
+document.querySelector('#showVideo').addEventListener('click', e => init(e, 'gum-local'));
+document.querySelector('#showVideo2').addEventListener('click', e => init(e, 'gum-local-2'));

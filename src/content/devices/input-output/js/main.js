@@ -109,12 +109,15 @@ function handleError(error) {
   log(`[error] navigator.mediaDevices.getUserMedia error: [${error.name}]${error.message}`);
 }
 
-function start() {
+function stopTracks() {
   if (window.stream) {
     window.stream.getTracks().forEach(track => {
       track.stop();
     });
   }
+}
+function start() {
+  stopTracks();
   const audioSource = audioInputSelect.value;
   const videoSource = videoSelect.value;
   const constraints = {
@@ -160,12 +163,10 @@ start();
 function logDevices(list) {
   list.forEach((item) => {
     // if (item.kind === 'videoinput') return;
-    log(`
-      [${item.kind}]
+    log(`[${item.kind}]
       groupId:${formatGroupId(item.groupId)}
       deviceId:${formatDeviceId(item.deviceId)} 
-      label:${item.label} 
-      `);
+      label:${item.label}`);
   });
 }
 
@@ -183,8 +184,7 @@ function logAudioTrackSettings(audioTrack) {
     label:${audioTrack.label} 
     kind:${audioTrack.kind} / 
     deviceId:${formatDeviceId(settings.deviceId)}
-    groupId:${formatGroupId(settings.groupId)}
-    `);
+    groupId:${formatGroupId(settings.groupId)}`);
 }
 
 
@@ -261,3 +261,7 @@ async function checkDevicesUpdate() {
   }
   prevDevices = devices;
 }
+
+window.addEventListener('unload', () => {
+  stopTracks();
+});
